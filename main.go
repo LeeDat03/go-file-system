@@ -10,10 +10,11 @@ import (
 type IAction string
 
 const (
-	ADD_FILE   IAction = "touch"
-	ADD_FOLDER IAction = "mkdir"
-	DISPLAY    IAction = "tree"
-	EXIT       IAction = "exit"
+	TOUCH IAction = "touch"
+	MKDIR IAction = "mkdir"
+	CD    IAction = "cd"
+	TREE  IAction = "tree"
+	EXIT  IAction = "exit"
 )
 
 type Node struct {
@@ -37,19 +38,24 @@ func NewTree(rootName string) *Tree {
 	}
 }
 
-func (t *Tree) AddNode(parentPath, name string, isFolder bool) bool {
+func (t *Tree) AddNode(parentPath, name string, isFolder bool) error {
 	// pre-validate
 	parentPath = strings.Trim(parentPath, " ")
 	name = strings.Trim(name, " ")
 
 	parentNode := t.FindNode(t.Root, parentPath)
+
 	if parentNode == nil {
-		fmt.Println("ERROR: path not found")
-		return false
+		return fmt.Errorf("path not found: %s", parentPath)
 	}
 	if !parentNode.IsFolder {
-		fmt.Println("The path you type is not a folder")
-		return false
+		return fmt.Errorf("the path '%s' is not a folder", parentPath)
+	}
+
+	for _, child := range parentNode.Child {
+		if child.Name == name {
+			return fmt.Errorf("node '%s' already exists in '%s'", name, parentPath)
+		}
 	}
 
 	newNode := &Node{
@@ -59,7 +65,8 @@ func (t *Tree) AddNode(parentPath, name string, isFolder bool) bool {
 		Parent:   t.Root,
 	}
 	parentNode.Child = append(parentNode.Child, newNode)
-	return true
+
+	return nil
 }
 
 func (t *Tree) FindNode(curr *Node, path string) *Node {
@@ -100,6 +107,41 @@ func (t *Tree) displayNode(node *Node, level int) {
 	}
 }
 
+func SplitPath(path string) (dir, file string) {
+	i := strings.LastIndex(path, "/")
+	if i == -1 {
+		return "", path
+	}
+
+	return path[:i], path[i+1:]
+}
+
+func (t *Tree) Touch(paths ...string) error {
+	for _, path := range paths {
+		dir, file := SplitPath(path)
+		if file == "" {
+			return fmt.Errorf("invalid file name in path: %s", path)
+		}
+		if err := t.AddNode(dir, file, false); err != nil {
+			return fmt.Errorf("failed to touch '%s': %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (t *Tree) Mkdir(paths ...string) error {
+	for _, path := range paths {
+		dir, folder := SplitPath(path)
+		if folder == "" {
+			return fmt.Errorf("invalid folder name in path: %s", path)
+		}
+		if err := t.AddNode(dir, folder, true); err != nil {
+			return fmt.Errorf("failed to mkdir '%s': %w", path, err)
+		}
+	}
+	return nil
+}
+
 func main() {
 	fmt.Println(`
 	 _______  _______    _______  ___   ___      _______   
@@ -122,22 +164,27 @@ func main() {
 
 		userInput := scanner.Text()
 		userInputParts := strings.Fields(userInput)
+
+		if len(userInputParts) == 0 {
+			continue
+		}
+
 		action := IAction(userInputParts[0])
+		args := userInputParts[1:]
 
 		switch action {
-		case ADD_FILE:
-			parentPath, fileName := userInputParts[1], userInputParts[2]
-
-			if fs.AddNode(parentPath, fileName, false) {
-				fmt.Printf("Added %s to %s \n", fileName, parentPath)
+		// TODO: relative path vs absolute path
+		case TOUCH:
+			err := fs.Touch(args...)
+			if err != nil {
+				fmt.Println("Error: ", err)
 			}
-		case ADD_FOLDER:
-			parentPath, folderName := userInputParts[1], userInputParts[2]
-
-			if fs.AddNode(parentPath, folderName, true) {
-				fmt.Printf("Added %s to %s \n", folderName, parentPath)
+		case MKDIR:
+			err := fs.Mkdir(args...)
+			if err != nil {
+				fmt.Println("Error: ", err)
 			}
-		case DISPLAY:
+		case TREE:
 			fs.Display()
 		case EXIT:
 			fmt.Println("EXIT!!!")
