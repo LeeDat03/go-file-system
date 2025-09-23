@@ -7,6 +7,8 @@ type IAction string
 const (
 	TOUCH IAction = "touch"
 	MKDIR IAction = "mkdir"
+	PWD   IAction = "pwd"
+	CD    IAction = "cd"
 	LS    IAction = "ls"
 	EXIT  IAction = "exit"
 )

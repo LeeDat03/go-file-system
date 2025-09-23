@@ -25,7 +25,7 @@ func main() {
 
 	// REPL = READ - EVEL - PRINT - LOOP
 	for {
-		fmt.Print(" > ")
+		fmt.Printf("[%s] > ", fs.CurrentPath())
 		scanner.Scan()
 
 		cmd := ParseCommand(scanner.Text())
@@ -37,6 +37,8 @@ func main() {
 			TOUCH: fs.Touch,
 			MKDIR: fs.Mkdir,
 			LS:    fs.Display,
+			CD:    fs.Cd,
+			PWD:   fs.Pwd,
 		}
 
 		if handler, ok := handlers[cmd.Action]; ok {
@@ -46,6 +48,5 @@ func main() {
 		} else {
 			fmt.Println("Unknown command:", cmd.Action)
 		}
-
 	}
 }

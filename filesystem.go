@@ -13,128 +13,176 @@ type Node struct {
 }
 
 type FileSystem struct {
-	Root *Node
+	Root       *Node
+	CurrentDir *Node
 }
 
 func NewFileSystem(rootName string) *FileSystem {
+	root := &Node{
+		Name:     rootName,
+		IsFolder: true,
+	}
+
 	return &FileSystem{
-		Root: &Node{
-			Name:     rootName,
-			IsFolder: true,
-			Child:    []*Node{},
-		},
+		Root:       root,
+		CurrentDir: root,
 	}
 }
 
-func (t *FileSystem) AddNode(parentPath, name string, isFolder bool) error {
-	// pre-validate
-	parentPath = strings.Trim(parentPath, " ")
-	name = strings.Trim(name, " ")
-
-	if parentPath == "" {
-		return fmt.Errorf("path not found: %s", parentPath)
-	}
-
-	parentNode := t.FindNode(t.Root, parentPath)
-
-	if parentNode == nil {
-		return fmt.Errorf("path not found: %s", parentPath)
-	}
-	if !parentNode.IsFolder {
-		return fmt.Errorf("the path '%s' is not a folder", parentPath)
-	}
-
-	for _, child := range parentNode.Child {
-		if child.Name == name {
-			return fmt.Errorf("node '%s' already exists in '%s'", name, parentPath)
-		}
-	}
-
-	newNode := &Node{
-		Name:     name,
-		IsFolder: isFolder,
-		Child:    []*Node{},
-		Parent:   t.Root,
-	}
-	parentNode.Child = append(parentNode.Child, newNode)
-
+func (fs *FileSystem) Display(paths ...string) error {
+	start := fs.CurrentDir
+	fmt.Println(fs.CurrentPath())
+	fs.displayNode(start, 1)
 	return nil
 }
 
-func (t *FileSystem) FindNode(curr *Node, path string) *Node {
-	if curr == nil {
-		return nil
-	}
-
-	splitedPath := strings.Split(path, "/")
-	if len(splitedPath) == 1 && splitedPath[0] == curr.Name {
-		return curr
-	}
-	for _, child := range curr.Child {
-		if child.Name == splitedPath[1] {
-			if len(splitedPath) == 1 {
-				return child
-			}
-			return t.FindNode(child, strings.Join(splitedPath[1:],
-				"/"))
-		}
-	}
-	return nil
-}
-
-// TODO: display tree with absolute path
-func (t *FileSystem) Display(paths ...string) error {
-	fmt.Println(t.Root.Name)
-	t.displayNode(t.Root, 1)
-
-	return nil
-}
-
-func (t *FileSystem) displayNode(node *Node, level int) {
+func (fs *FileSystem) displayNode(node *Node, level int) {
 	for _, child := range node.Child {
 		prefix := strings.Repeat("  ", level)
 		if child.IsFolder {
 			fmt.Printf("%s📁 %s\n", prefix, child.Name)
-			t.displayNode(child, level+1)
+			fs.displayNode(child, level+1)
 		} else {
 			fmt.Printf("%s📄 %s\n", prefix, child.Name)
 		}
 	}
 }
 
-func splitPath(path string) (dir, file string) {
-	i := strings.LastIndex(path, "/")
-	if i == -1 {
-		return "", path
+func (fs *FileSystem) CurrentPath() string {
+	parts := []string{}
+	node := fs.CurrentDir
+	for node != nil {
+		parts = append([]string{node.Name}, parts...)
+		node = node.Parent
 	}
-
-	return path[:i], path[i+1:]
+	return strings.Join(parts, "/")
 }
 
-func (t *FileSystem) Touch(paths ...string) error {
-	for _, path := range paths {
-		dir, file := splitPath(path)
-		fmt.Printf("Path: %s, Dir: %s, File: %s\n", path, dir, file)
-		if file == "" {
-			return fmt.Errorf("invalid file name in path: %s", path)
-		}
+func (fs *FileSystem) resolvePath(path string) []string {
+	path = strings.TrimSpace(path)
 
-		if err := t.AddNode(dir, file, false); err != nil {
-			return fmt.Errorf("failed to touch '%s': %w", path, err)
+	// absolute path
+	if IsAbsolutePath(path) {
+		parts := strings.Split(path, "/")
+		if parts[0] == "" {
+			parts = parts[1:]
+		}
+		return parts
+	}
+
+	// relative path
+	currPath := fs.CurrentPath()
+	if currPath == "" {
+		currPath = "root"
+	}
+
+	parts := append(strings.Split(currPath, "/"), strings.Split(path, "/")...)
+	return parts
+}
+
+func (fs *FileSystem) makePath(path string, makeDir bool) error {
+	parts := strings.Split(path, "/")
+
+	var node *Node
+
+	if IsAbsolutePath(path) {
+		node = fs.Root
+		if len(parts) > 0 && parts[0] == fs.Root.Name {
+			parts = parts[1:]
+		}
+	} else {
+		node = fs.CurrentDir
+	}
+
+	for i, part := range parts {
+		isLast := i == len(parts)-1
+		var child *Node
+		for _, c := range node.Child {
+			if part == c.Name && c.IsFolder {
+				child = c
+				break
+			}
+		}
+		if child != nil {
+			if i == len(parts)-1 && !child.IsFolder {
+				return fmt.Errorf("touch: file already exists: %s", path)
+			}
+			node = child
+			continue
+		}
+		// create new node
+		newNode := &Node{
+			Name:     part,
+			IsFolder: !isLast || makeDir,
+			Parent:   node,
+		}
+		node.Child = append(node.Child, newNode)
+		node = newNode
+	}
+	return nil
+}
+
+func (fs *FileSystem) Touch(paths ...string) error {
+	for _, path := range paths {
+		if err := fs.makePath(path, false); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (t *FileSystem) Mkdir(paths ...string) error {
+func (fs *FileSystem) Mkdir(paths ...string) error {
 	for _, path := range paths {
-		dir, folder := splitPath(path)
-		if folder == "" {
-			return fmt.Errorf("invalid folder name in path: %s", path)
-		}
-		if err := t.AddNode(dir, folder, true); err != nil {
-			return fmt.Errorf("failed to mkdir '%s': %w", path, err)
+		if err := fs.makePath(path, true); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+func (fs *FileSystem) Pwd(paths ...string) error {
+	fmt.Println(fs.CurrentPath())
+	return nil
+}
+
+func (fs *FileSystem) Cd(paths ...string) error {
+	path := paths[0]
+	parts := strings.Split(paths[0], "/")
+
+	var node *Node
+
+	if IsAbsolutePath(path) {
+		node = fs.Root
+		if len(parts) > 0 && parts[0] == fs.Root.Name {
+			parts = parts[1:]
+		}
+	} else {
+		node = fs.CurrentDir
+	}
+
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if node.Parent != nil {
+				node = node.Parent
+
+			}
+		default:
+			found := false
+			for _, child := range node.Child {
+				if child.Name == part && child.IsFolder {
+					node = child
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("cd: no such directory: %s", path)
+			}
+		}
+	}
+	fs.CurrentDir = node
 	return nil
 }
